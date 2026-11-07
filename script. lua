@@ -1,0 +1,1226 @@
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local cam = workspace.CurrentCamera
+
+local lightBlue = Color3.fromRGB(174, 204, 228)
+local lightPink = Color3.fromRGB(255, 182, 193)
+local cardBase = Color3.fromRGB(240, 246, 252)
+local textBlue = Color3.fromRGB(70, 100, 130)
+local white = Color3.fromRGB(255, 255, 255)
+
+local customFont = Enum.Font.PatrickHand
+
+_G.FOV_RADIUS = 100
+_G.ShowFOV = false
+_G.RevolverBypass = false
+_G.WallCheck = false
+_G.SilentAimEnabled = true
+_G.KnockCheck = false
+_G.Whitelist = _G.Whitelist or {}
+_G.BulletSpreadAmount = 100
+
+_G.CamlockEnabled = false
+_G.CamlockMode = "Toggle"
+_G.CamlockAutoToggle = false
+_G.CamlockHitPart = "HumanoidRootPart"
+_G.CamlockEasingStyle = "Quad"
+_G.CamlockEasingDirection = "Out"
+_G.CamlockFOVRadius = 1000
+_G.CamlockClosestPointMode = "Default"
+_G.CamlockClosestPointScale = 0
+_G.CamlockSmoothness = 0.18
+_G.CamlockPullStrengthEnabled = false
+_G.CamlockPullStrengthBaseValue = 0
+_G.CamlockPullStrengthMoveValue = 0
+_G.CamlockPredictionEnabled = false
+_G.CamlockPredictionX = 0
+_G.CamlockPredictionY = 0
+_G.CamlockPredictionZ = 0
+_G.CamlockMaxDistance = 0
+_G.CamlockConditionsForceField = false
+_G.CamlockConditionsVisible = false
+_G.CamlockConditionsCarried = false
+_G.CamlockConditionsKnocked = false
+_G.CamlockConditionsSelfKnocked = false
+
+_G.ZoomRateEnabled = true
+_G.ZoomOnlyWhenCamlocked = true
+_G.ZoomSpeed = 8
+_G.ZoomMin = 5
+_G.ZoomMax = 25
+_G.ZoomStayMin = 0.5
+_G.ZoomStayMax = 0.5
+_G.ZoomFrequency = 2
+
+local aimPart = "Head"
+
+local AllHitPartOptions = {
+    "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart",
+    "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm",
+    "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg",
+    "LeftFoot", "RightFoot", "LeftHand", "RightHand", "Closest Point"
+}
+
+-- ===== ЭКРАН =====
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "KawaiiCardUI"
+screenGui.Parent = PlayerGui
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+
+-- ===== КОНТЕЙНЕР =====
+local cardContainer = Instance.new("Frame")
+cardContainer.Name = "CardContainer"
+cardContainer.Size = UDim2.new(0, 580, 0, 450)
+cardContainer.Position = UDim2.new(0.5, -290, 0.5, -225)
+cardContainer.BackgroundColor3 = cardBase
+cardContainer.BorderSizePixel = 0
+cardContainer.BackgroundTransparency = 1
+cardContainer.ClipsDescendants = true
+cardContainer.Parent = screenGui
+
+TweenService:Create(cardContainer, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0}):Play()
+
+local cardCorner = Instance.new("UICorner")
+cardCorner.CornerRadius = UDim.new(0, 24)
+cardCorner.Parent = cardContainer
+
+local uiStroke = Instance.new("UIStroke")
+uiStroke.Color = lightPink
+uiStroke.Thickness = 5
+uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+uiStroke.LineJoinMode = Enum.LineJoinMode.Round
+uiStroke.Parent = cardContainer
+
+-- ===== ТОЧКИ =====
+local dotsContainer = Instance.new("Frame")
+dotsContainer.Name = "DotsContainer"
+dotsContainer.Size = UDim2.new(1, 0, 1, 0)
+dotsContainer.BackgroundTransparency = 1
+dotsContainer.ClipsDescendants = true
+dotsContainer.ZIndex = 1
+dotsContainer.Parent = cardContainer
+
+local activeDots = {}
+local rng = Random.new()
+
+for i = 1, 55 do
+    local size = rng:NextInteger(4, 8)
+    local alpha = rng:NextNumber(0.35, 0.65)
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.new(0, size, 0, size)
+    dot.Position = UDim2.new(0, rng:NextInteger(0, 580), 0, rng:NextInteger(0, 450))
+    dot.BackgroundColor3 = lightPink
+    dot.BackgroundTransparency = alpha
+    dot.BorderSizePixel = 0
+    dot.ZIndex = 1
+    dot.Parent = dotsContainer
+    local dotCorner = Instance.new("UICorner")
+    dotCorner.CornerRadius = UDim.new(1, 0)
+    dotCorner.Parent = dot
+    table.insert(activeDots, {
+        Frame = dot,
+        Speed = rng:NextNumber(15, 35),
+        XBase = dot.Position.X.Offset,
+        YPos = dot.Position.Y.Offset
+    })
+end
+
+RunService.RenderStepped:Connect(function(dt)
+    for _, dotData in ipairs(activeDots) do
+        dotData.YPos = dotData.YPos + (dotData.Speed * dt)
+        if dotData.YPos > 450 then
+            dotData.YPos = -10
+            dotData.XBase = rng:NextInteger(0, 580)
+        end
+        local driftOffset = math.sin(tick() + dotData.XBase) * 5
+        dotData.Frame.Position = UDim2.new(0, dotData.XBase + driftOffset, 0, dotData.YPos)
+    end
+end)
+
+-- ===== HEADER =====
+local header = Instance.new("Frame")
+header.Name = "Header"
+header.Size = UDim2.new(1, 0, 0, 140)
+header.Position = UDim2.new(0, 0, 0, 0)
+header.BackgroundColor3 = lightBlue
+header.BorderSizePixel = 0
+header.ZIndex = 2
+header.Parent = cardContainer
+
+local headerCorner = Instance.new("UICorner")
+headerCorner.CornerRadius = UDim.new(0, 24)
+headerCorner.Parent = header
+
+local headerSquareFix = Instance.new("Frame")
+headerSquareFix.Size = UDim2.new(1, 0, 0, 20)
+headerSquareFix.Position = UDim2.new(0, 0, 1, -20)
+headerSquareFix.BackgroundColor3 = lightBlue
+headerSquareFix.BorderSizePixel = 0
+headerSquareFix.ZIndex = 2
+headerSquareFix.Parent = header
+
+local headerBorderLine = Instance.new("Frame")
+headerBorderLine.Size = UDim2.new(1, 0, 0, 3)
+headerBorderLine.Position = UDim2.new(0, 0, 0, 140)
+headerBorderLine.BackgroundColor3 = lightPink
+headerBorderLine.BorderSizePixel = 0
+headerBorderLine.ZIndex = 5
+headerBorderLine.Parent = cardContainer
+
+local bigBannerImage = Instance.new("ImageLabel")
+bigBannerImage.Size = UDim2.new(0, 260, 0, 60)
+bigBannerImage.Position = UDim2.new(0.5, -130, 0, 10)
+bigBannerImage.BackgroundTransparency = 1
+bigBannerImage.Image = "rbxassetid://119896491369298"
+bigBannerImage.ScaleType = Enum.ScaleType.Fit
+bigBannerImage.ZIndex = 4
+bigBannerImage.Parent = header
+
+-- ===== НАВИГАЦИЯ =====
+local navTabs = Instance.new("Frame")
+navTabs.Name = "NavTabs"
+navTabs.Size = UDim2.new(1, 0, 0, 50)
+navTabs.Position = UDim2.new(0, 0, 0, 78)
+navTabs.BackgroundTransparency = 1
+navTabs.ZIndex = 3
+navTabs.Parent = header
+
+local navListLayout = Instance.new("UIListLayout")
+navListLayout.FillDirection = Enum.FillDirection.Horizontal
+navListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+navListLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+navListLayout.Padding = UDim.new(0, 10)
+navListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+navListLayout.Parent = navTabs
+
+local function applyTextGlow(textLabel, glowColor)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = glowColor or lightBlue
+    stroke.Thickness = 1.2
+    stroke.Transparency = 0.6
+    stroke.Parent = textLabel
+end
+
+local function createTabButton(name, text, iconText, layoutOrder)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Size = UDim2.new(0, 100, 0, 44)
+    btn.LayoutOrder = layoutOrder
+    btn.BackgroundColor3 = white
+    btn.BorderSizePixel = 2
+    btn.BorderColor3 = lightBlue
+    btn.Text = iconText .. "\n" .. text
+    btn.TextColor3 = textBlue
+    btn.Font = customFont
+    btn.TextSize = 16
+    btn.AutoButtonColor = false
+    btn.ZIndex = 4
+    btn.Parent = navTabs
+    applyTextGlow(btn, lightBlue)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 14)
+    corner.Parent = btn
+    return btn
+end
+
+local tabHomepage = createTabButton("TabHomepage", "homepage", "♡", 1)
+local tabCamlock = createTabButton("TabCamlock", "camlock", "♡", 2)
+local tabZoomrate = createTabButton("TabZoomrate", "zoomrate", "♡", 3)
+local tabSilentAim = createTabButton("TabSilentAim", "silent aim", "♡", 4)
+
+-- ===== ВНУТРЕННИЙ КУБ =====
+local innerCube = Instance.new("Frame")
+innerCube.Size = UDim2.new(1, -32, 1, -195)
+innerCube.Position = UDim2.new(0, 16, 0, 150)
+innerCube.BackgroundColor3 = white
+innerCube.BorderSizePixel = 2
+innerCube.BorderColor3 = lightPink
+innerCube.ZIndex = 2
+innerCube.Parent = cardContainer
+
+local innerCubeCorner = Instance.new("UICorner")
+innerCubeCorner.CornerRadius = UDim.new(0, 20)
+innerCubeCorner.Parent = innerCube
+
+local contentBody = Instance.new("Frame")
+contentBody.Size = UDim2.new(1, -20, 1, -20)
+contentBody.Position = UDim2.new(0, 10, 0, 10)
+contentBody.BackgroundTransparency = 1
+contentBody.ZIndex = 3
+contentBody.Parent = innerCube
+
+local mainContent = Instance.new("Frame")
+mainContent.Size = UDim2.new(1, 0, 1, 0)
+mainContent.BackgroundTransparency = 1
+mainContent.ZIndex = 3
+mainContent.Parent = contentBody
+
+local createdPanels = {}
+
+-- ===== ПЕРЕКЛЮЧАТЕЛЬ =====
+local function createPillToggle(parent, nameText, posY, initialState, callback)
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(1, -10, 0, 36)
+    toggleBtn.Position = UDim2.new(0, 5, 0, posY)
+    toggleBtn.BackgroundColor3 = initialState and cardBase or white
+    toggleBtn.BorderSizePixel = 1
+    toggleBtn.BorderColor3 = lightBlue
+    toggleBtn.Text = "  " .. nameText .. ": " .. (initialState and "ON" or "OFF")
+    toggleBtn.TextColor3 = textBlue
+    toggleBtn.Font = customFont
+    toggleBtn.TextSize = 15
+    toggleBtn.TextXAlignment = Enum.TextXAlignment.Left
+    toggleBtn.AutoButtonColor = false
+    toggleBtn.ZIndex = 5
+    toggleBtn.Parent = parent
+    applyTextGlow(toggleBtn, lightBlue)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 18)
+    corner.Parent = toggleBtn
+    local pillTrack = Instance.new("Frame")
+    pillTrack.Size = UDim2.new(0, 38, 0, 20)
+    pillTrack.Position = UDim2.new(1, -44, 0.5, -10)
+    pillTrack.BackgroundColor3 = initialState and lightPink or lightBlue
+    pillTrack.BorderSizePixel = 0
+    pillTrack.ZIndex = 6
+    pillTrack.Parent = toggleBtn
+    local trackCorner = Instance.new("UICorner")
+    trackCorner.CornerRadius = UDim.new(1, 0)
+    trackCorner.Parent = pillTrack
+    local pillKnob = Instance.new("Frame")
+    pillKnob.Size = UDim2.new(0, 16, 0, 16)
+    pillKnob.Position = UDim2.new(initialState and 1 or 0, initialState and -18 or 2, 0.5, -8)
+    pillKnob.BackgroundColor3 = white
+    pillKnob.BorderSizePixel = 0
+    pillKnob.ZIndex = 7
+    pillKnob.Parent = pillTrack
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = pillKnob
+
+    toggleBtn.MouseButton1Click:Connect(function()
+        initialState = not initialState
+        local twInfo = TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        if initialState then
+            toggleBtn.Text = "  " .. nameText .. ": ON"
+            TweenService:Create(toggleBtn, twInfo, {BackgroundColor3 = cardBase}):Play()
+            TweenService:Create(pillTrack, twInfo, {BackgroundColor3 = lightPink}):Play()
+            TweenService:Create(pillKnob, twInfo, {Position = UDim2.new(1, -18, 0.5, -8)}):Play()
+        else
+            toggleBtn.Text = "  " .. nameText .. ": OFF"
+            TweenService:Create(toggleBtn, twInfo, {BackgroundColor3 = white}):Play()
+            TweenService:Create(pillTrack, twInfo, {BackgroundColor3 = lightBlue}):Play()
+            TweenService:Create(pillKnob, twInfo, {Position = UDim2.new(0, 2, 0.5, -8)}):Play()
+        end
+        callback(initialState)
+    end)
+end
+
+-- ===== СЛАЙДЕР =====
+local function createSliderDial(parent, nameText, posY, minVal, maxVal, defaultVal, callback, isFloat)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -10, 0, 44)
+    frame.Position = UDim2.new(0, 5, 0, posY)
+    frame.BackgroundColor3 = white
+    frame.BorderSizePixel = 1
+    frame.BorderColor3 = lightBlue
+    frame.ZIndex = 5
+    frame.Parent = parent
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 16)
+    corner.Parent = frame
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -20, 0, 20)
+    label.Position = UDim2.new(0, 10, 0, 2)
+    label.BackgroundTransparency = 1
+    label.Text = nameText .. ": " .. (isFloat and string.format("%.3f", defaultVal) or tostring(defaultVal))
+    label.TextColor3 = textBlue
+    label.Font = customFont
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.ZIndex = 6
+    label.Parent = frame
+    applyTextGlow(label, lightBlue)
+    local trackBtn = Instance.new("TextButton")
+    trackBtn.Size = UDim2.new(1, -20, 0, 12)
+    trackBtn.Position = UDim2.new(0, 10, 0, 24)
+    trackBtn.BackgroundColor3 = cardBase
+    trackBtn.BorderSizePixel = 0
+    trackBtn.Text = ""
+    trackBtn.AutoButtonColor = false
+    trackBtn.ZIndex = 6
+    trackBtn.Parent = frame
+    local trackCorner = Instance.new("UICorner")
+    trackCorner.CornerRadius = UDim.new(1, 0)
+    trackCorner.Parent = trackBtn
+    local fill = Instance.new("Frame")
+    local startPct = math.clamp((defaultVal - minVal) / (maxVal - minVal), 0, 1)
+    fill.Size = UDim2.new(startPct, 0, 1, 0)
+    fill.BackgroundColor3 = lightPink
+    fill.BorderSizePixel = 0
+    fill.ZIndex = 7
+    fill.Parent = trackBtn
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(1, 0)
+    fillCorner.Parent = fill
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 16, 0, 16)
+    knob.Position = UDim2.new(startPct, -8, 0.5, -8)
+    knob.BackgroundColor3 = lightBlue
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 8
+    knob.Parent = trackBtn
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+    local draggingSlider = false
+    local function updateSlider(input)
+        local absPos = trackBtn.AbsolutePosition.X
+        local absSize = trackBtn.AbsoluteSize.X
+        local mouseX = input.Position.X
+        local percent = math.clamp((mouseX - absPos) / absSize, 0, 1)
+        local val = minVal + (maxVal - minVal) * percent
+        if isFloat then val = tonumber(string.format("%.3f", val)) else val = math.floor(val) end
+        fill.Size = UDim2.new(percent, 0, 1, 0)
+        knob.Position = UDim2.new(percent, -8, 0.5, -8)
+        label.Text = nameText .. ": " .. (isFloat and string.format("%.3f", val) or tostring(val))
+        callback(val)
+    end
+    trackBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            draggingSlider = true
+            updateSlider(input)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if draggingSlider and input.UserInputType == Enum.UserInputType.Touch then
+            updateSlider(input)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            draggingSlider = false
+        end
+    end)
+end
+
+-- ===== ДРОПДАУН =====
+local function createDropdown(parent, nameText, posY, options, currentVal, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -10, 0, 36)
+    frame.Position = UDim2.new(0, 5, 0, posY)
+    frame.BackgroundColor3 = white
+    frame.BorderSizePixel = 1
+    frame.BorderColor3 = lightBlue
+    frame.ZIndex = 5
+    frame.Parent = parent
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 16)
+    corner.Parent = frame
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 100, 0, 20)
+    label.Position = UDim2.new(0, 10, 0.5, -10)
+    label.BackgroundTransparency = 1
+    label.Text = nameText
+    label.TextColor3 = textBlue
+    label.Font = customFont
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.ZIndex = 6
+    label.Parent = frame
+    applyTextGlow(label, lightBlue)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -120, 0, 28)
+    btn.Position = UDim2.new(0, 110, 0.5, -14)
+    btn.BackgroundColor3 = cardBase
+    btn.BorderSizePixel = 1
+    btn.BorderColor3 = lightBlue
+    btn.Text = tostring(currentVal)
+    btn.TextColor3 = textBlue
+    btn.Font = customFont
+    btn.TextSize = 13
+    btn.AutoButtonColor = false
+    btn.ZIndex = 6
+    btn.Parent = frame
+    local dropdownCorner = Instance.new("UICorner")
+    dropdownCorner.CornerRadius = UDim.new(0, 10)
+    dropdownCorner.Parent = btn
+    local dropdownContainer = Instance.new("Frame")
+    dropdownContainer.Size = UDim2.new(1, -120, 0, #options * 26)
+    dropdownContainer.Position = UDim2.new(0, 110, 0, 22)
+    dropdownContainer.BackgroundColor3 = white
+    dropdownContainer.BorderSizePixel = 1
+    dropdownContainer.BorderColor3 = lightPink
+    dropdownContainer.Visible = false
+    dropdownContainer.ZIndex = 20
+    dropdownContainer.Parent = frame
+    local containerCorner = Instance.new("UICorner")
+    containerCorner.CornerRadius = UDim.new(0, 10)
+    containerCorner.Parent = dropdownContainer
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    listLayout.Parent = dropdownContainer
+    btn.MouseButton1Click:Connect(function()
+        dropdownContainer.Visible = not dropdownContainer.Visible
+    end)
+    for _, opt in ipairs(options) do
+        local optBtn = Instance.new("TextButton")
+        optBtn.Size = UDim2.new(1, 0, 0, 24)
+        optBtn.BackgroundColor3 = white
+        optBtn.BorderSizePixel = 0
+        optBtn.Text = tostring(opt)
+        optBtn.TextColor3 = textBlue
+        optBtn.Font = customFont
+        optBtn.TextSize = 12
+        optBtn.AutoButtonColor = false
+        optBtn.ZIndex = 21
+        optBtn.Parent = dropdownContainer
+        optBtn.MouseButton1Click:Connect(function()
+            btn.Text = tostring(opt)
+            dropdownContainer.Visible = false
+            callback(opt)
+        end)
+    end
+end
+
+-- ===== ПАНЕЛЬ =====
+local function createTabPanel(name, title, subtitle)
+    local panel = Instance.new("Frame")
+    panel.Name = name
+    panel.Size = UDim2.new(1, 0, 1, 0)
+    panel.BackgroundColor3 = white
+    panel.BorderSizePixel = 2
+    panel.BorderColor3 = lightPink
+    panel.Visible = false
+    panel.BackgroundTransparency = 1
+    panel.ZIndex = 3
+    panel.Parent = mainContent
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 20)
+    corner.Parent = panel
+    local panelHeader = Instance.new("Frame")
+    panelHeader.Size = UDim2.new(1, -16, 0, 34)
+    panelHeader.Position = UDim2.new(0, 8, 0, 8)
+    panelHeader.BackgroundColor3 = lightBlue
+    panelHeader.BorderSizePixel = 0
+    panelHeader.ZIndex = 4
+    panelHeader.Parent = panel
+    local headerCorner = Instance.new("UICorner")
+    headerCorner.CornerRadius = UDim.new(0, 10)
+    headerCorner.Parent = panelHeader
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, 0, 0.55, 0)
+    titleLabel.Position = UDim2.new(0, 0, 0, 2)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = title
+    titleLabel.TextColor3 = white
+    titleLabel.Font = customFont
+    titleLabel.TextSize = 16
+    titleLabel.ZIndex = 5
+    titleLabel.Parent = panelHeader
+    applyTextGlow(titleLabel, white)
+    local subtitleLabel = Instance.new("TextLabel")
+    subtitleLabel.Size = UDim2.new(1, 0, 0.45, 0)
+    subtitleLabel.Position = UDim2.new(0, 0, 0.5, -2)
+    subtitleLabel.BackgroundTransparency = 1
+    subtitleLabel.Text = subtitle
+    subtitleLabel.TextColor3 = lightPink
+    subtitleLabel.Font = customFont
+    subtitleLabel.TextSize = 11
+    subtitleLabel.ZIndex = 5
+    subtitleLabel.Parent = panelHeader
+    applyTextGlow(subtitleLabel, lightPink)
+    local scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Size = UDim2.new(1, -16, 1, -54)
+    scrollFrame.Position = UDim2.new(0, 8, 0, 46)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.BorderSizePixel = 0
+    scrollFrame.ScrollBarThickness = 6
+    scrollFrame.ScrollBarImageColor3 = lightPink
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 1200)
+    scrollFrame.ZIndex = 4
+    scrollFrame.Parent = panel
+    createdPanels[name] = panel
+    return panel, scrollFrame
+end
+
+-- ===== HOMEPAGE =====
+local panelHomepage = Instance.new("Frame")
+panelHomepage.Size = UDim2.new(1, 0, 1, 0)
+panelHomepage.BackgroundColor3 = white
+panelHomepage.BorderSizePixel = 2
+panelHomepage.BorderColor3 = lightPink
+panelHomepage.Visible = true
+panelHomepage.BackgroundTransparency = 1
+panelHomepage.ZIndex = 3
+panelHomepage.Parent = mainContent
+
+TweenService:Create(panelHomepage, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0}):Play()
+
+local homepageCorner = Instance.new("UICorner")
+homepageCorner.CornerRadius = UDim.new(0, 20)
+homepageCorner.Parent = panelHomepage
+
+local welcomeText = Instance.new("TextLabel")
+welcomeText.Size = UDim2.new(0, 320, 0, 60)
+welcomeText.Position = UDim2.new(0.5, -160, 0.15, -30)
+welcomeText.BackgroundTransparency = 1
+welcomeText.Text = "welcome to the homepage <3 enjoy using the best script on the market :)"
+welcomeText.TextColor3 = textBlue
+welcomeText.Font = customFont
+welcomeText.TextSize = 24
+welcomeText.TextWrapped = true
+welcomeText.ZIndex = 6
+welcomeText.Parent = panelHomepage
+applyTextGlow(welcomeText, lightPink)
+
+local homepageCharacter = Instance.new("ImageLabel")
+homepageCharacter.Size = UDim2.new(0, 180, 0, 180)
+homepageCharacter.Position = UDim2.new(0.5, -90, 0.65, -90)
+homepageCharacter.BackgroundTransparency = 1
+homepageCharacter.Image = "rbxassetid://108075599360721"
+homepageCharacter.ScaleType = Enum.ScaleType.Fit
+homepageCharacter.ZIndex = 4
+homepageCharacter.Parent = panelHomepage
+
+createdPanels["PanelHomepage"] = panelHomepage
+
+local panelCamlock, scrollCamlock = createTabPanel("PanelCamlock", "camlock", "settings & info")
+local panelZoomrate, scrollZoomrate = createTabPanel("PanelZoomrate", "zoomrate", "zoom level control")
+local panelSilentAim, scrollSilentAim = createTabPanel("PanelSilentAim", "silent aim", "targeting assistance")
+
+-- Silent Aim
+createPillToggle(scrollSilentAim, "Silent Aim", 6, _G.SilentAimEnabled, function(v) _G.SilentAimEnabled = v end)
+createPillToggle(scrollSilentAim, "Show FOV", 48, _G.ShowFOV, function(v) _G.ShowFOV = v end)
+createPillToggle(scrollSilentAim, "Revolver Bypass", 90, _G.RevolverBypass, function(v) _G.RevolverBypass = v end)
+createPillToggle(scrollSilentAim, "Wall Check", 132, _G.WallCheck, function(v) _G.WallCheck = v end)
+createPillToggle(scrollSilentAim, "Knock Check", 174, _G.KnockCheck, function(v) _G.KnockCheck = v end)
+createSliderDial(scrollSilentAim, "FOV Radius", 216, 10, 1000, _G.FOV_RADIUS, function(v) _G.FOV_RADIUS = v end)
+createSliderDial(scrollSilentAim, "Bullet Spread", 266, 0, 100, _G.BulletSpreadAmount, function(v) _G.BulletSpreadAmount = v end)
+createDropdown(scrollSilentAim, "Hit Part", 316, AllHitPartOptions, aimPart, function(v) aimPart = v end)
+
+-- Camlock
+createPillToggle(scrollCamlock, "Camlock", 6, _G.CamlockEnabled, function(v) _G.CamlockEnabled = v if not v then DisableCamlock() end end)
+createPillToggle(scrollCamlock, "Auto Toggle", 48, _G.CamlockAutoToggle, function(v) _G.CamlockAutoToggle = v end)
+createDropdown(scrollCamlock, "Mode", 90, {"Hold", "Toggle"}, _G.CamlockMode, function(v) _G.CamlockMode = v DisableCamlock() end)
+createDropdown(scrollCamlock, "Hit Part", 132, AllHitPartOptions, _G.CamlockHitPart, function(v) _G.CamlockHitPart = v end)
+createDropdown(scrollCamlock, "CP Mode", 174, {"Default", "Basic"}, _G.CamlockClosestPointMode, function(v) _G.CamlockClosestPointMode = v end)
+createSliderDial(scrollCamlock, "CP Scale", 216, 0, 1, _G.CamlockClosestPointScale, function(v) _G.CamlockClosestPointScale = v end, true)
+createSliderDial(scrollCamlock, "FOV Radius", 266, 0, 1000, _G.CamlockFOVRadius, function(v) _G.CamlockFOVRadius = v end)
+createSliderDial(scrollCamlock, "Max Distance", 316, 0, 100000, _G.CamlockMaxDistance, function(v) _G.CamlockMaxDistance = v end)
+createDropdown(scrollCamlock, "Easing Style", 366, {"Linear", "Quad", "Sine", "Back", "Elastic", "Bounce"}, _G.CamlockEasingStyle, function(v) _G.CamlockEasingStyle = v end)
+createDropdown(scrollCamlock, "Easing Dir", 408, {"In", "Out", "InOut"}, _G.CamlockEasingDirection, function(v) _G.CamlockEasingDirection = v end)
+createSliderDial(scrollCamlock, "Smoothness", 450, 0, 1, _G.CamlockSmoothness, function(v) _G.CamlockSmoothness = v end, true)
+createPillToggle(scrollCamlock, "Pull Strength", 500, _G.CamlockPullStrengthEnabled, function(v) _G.CamlockPullStrengthEnabled = v end)
+createSliderDial(scrollCamlock, "Pull Base", 542, 0.001, 0.2, _G.CamlockPullStrengthBaseValue, function(v) _G.CamlockPullStrengthBaseValue = v end, true)
+createSliderDial(scrollCamlock, "Pull Move", 592, 0.001, 0.2, _G.CamlockPullStrengthMoveValue, function(v) _G.CamlockPullStrengthMoveValue = v end, true)
+createPillToggle(scrollCamlock, "Prediction", 642, _G.CamlockPredictionEnabled, function(v) _G.CamlockPredictionEnabled = v end)
+createSliderDial(scrollCamlock, "Pred X", 684, 0.001, 0.1, _G.CamlockPredictionX, function(v) _G.CamlockPredictionX = v end, true)
+createSliderDial(scrollCamlock, "Pred Y", 734, 0.001, 0.1, _G.CamlockPredictionY, function(v) _G.CamlockPredictionY = v end, true)
+createSliderDial(scrollCamlock, "Pred Z", 784, 0.001, 0.1, _G.CamlockPredictionZ, function(v) _G.CamlockPredictionZ = v end, true)
+createPillToggle(scrollCamlock, "FF Check", 834, _G.CamlockConditionsForceField, function(v) _G.CamlockConditionsForceField = v end)
+createPillToggle(scrollCamlock, "Vis Check", 876, _G.CamlockConditionsVisible, function(v) _G.CamlockConditionsVisible = v end)
+createPillToggle(scrollCamlock, "Carried Check", 918, _G.CamlockConditionsCarried, function(v) _G.CamlockConditionsCarried = v end)
+createPillToggle(scrollCamlock, "Knocked Check", 960, _G.CamlockConditionsKnocked, function(v) _G.CamlockConditionsKnocked = v end)
+createPillToggle(scrollCamlock, "Self KO Check", 1002, _G.CamlockConditionsSelfKnocked, function(v) _G.CamlockConditionsSelfKnocked = v end)
+
+-- Zoomrate
+createPillToggle(scrollZoomrate, "Zoomrate", 6, _G.ZoomRateEnabled, function(v) _G.ZoomRateEnabled = v end)
+createPillToggle(scrollZoomrate, "Only When Camlocked", 48, _G.ZoomOnlyWhenCamlocked, function(v) _G.ZoomOnlyWhenCamlocked = v end)
+createSliderDial(scrollZoomrate, "Zoom Speed", 90, 1, 30, _G.ZoomSpeed, function(v) _G.ZoomSpeed = v end)
+createSliderDial(scrollZoomrate, "Zoom Min", 140, 1, 20, _G.ZoomMin, function(v) _G.ZoomMin = v end)
+createSliderDial(scrollZoomrate, "Zoom Max", 190, 5, 50, _G.ZoomMax, function(v) _G.ZoomMax = v end)
+createSliderDial(scrollZoomrate, "Stay Min", 240, 0.1, 3, _G.ZoomStayMin, function(v) _G.ZoomStayMin = v end, true)
+createSliderDial(scrollZoomrate, "Stay Max", 290, 0.1, 3, _G.ZoomStayMax, function(v) _G.ZoomStayMax = v end, true)
+createSliderDial(scrollZoomrate, "Frequency", 340, 0.5, 10, _G.ZoomFrequency, function(v) _G.ZoomFrequency = v end, true)
+
+-- ===== FOOTER =====
+local footer = Instance.new("Frame")
+footer.Size = UDim2.new(1, 0, 0, 35)
+footer.Position = UDim2.new(0, 0, 1, -35)
+footer.BackgroundColor3 = lightBlue
+footer.BorderSizePixel = 0
+footer.ZIndex = 2
+footer.Parent = cardContainer
+
+local footerCorner = Instance.new("UICorner")
+footerCorner.CornerRadius = UDim.new(0, 24)
+footerCorner.Parent = footer
+
+local footerSquareFix = Instance.new("Frame")
+footerSquareFix.Size = UDim2.new(1, 0, 0, 20)
+footerSquareFix.BackgroundColor3 = lightBlue
+footerSquareFix.BorderSizePixel = 0
+footerSquareFix.ZIndex = 2
+footerSquareFix.Parent = footer
+
+local footerBadge = Instance.new("TextLabel")
+footerBadge.Size = UDim2.new(0, 140, 0, 22)
+footerBadge.Position = UDim2.new(0.5, -70, 0.5, -11)
+footerBadge.BackgroundColor3 = white
+footerBadge.BorderSizePixel = 1
+footerBadge.BorderColor3 = lightPink
+footerBadge.Text = "made by rui :)"
+footerBadge.TextColor3 = textBlue
+footerBadge.Font = customFont
+footerBadge.TextSize = 13
+footerBadge.ZIndex = 4
+footerBadge.Parent = footer
+applyTextGlow(footerBadge, lightPink)
+
+local badgeCorner = Instance.new("UICorner")
+badgeCorner.CornerRadius = UDim.new(0, 12)
+badgeCorner.Parent = footerBadge
+
+-- ===== ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК =====
+local currentActivePanel = panelHomepage
+local isSwitching = false
+
+local function setPanelTransparency(panel, bgT, textT)
+    local tw = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    TweenService:Create(panel, tw, {BackgroundTransparency = bgT}):Play()
+    for _, desc in ipairs(panel:GetDescendants()) do
+        if desc:IsA("Frame") then
+            TweenService:Create(desc, tw, {BackgroundTransparency = bgT}):Play()
+        elseif desc:IsA("TextLabel") or desc:IsA("TextButton") then
+            TweenService:Create(desc, tw, {TextTransparency = textT}):Play()
+        end
+    end
+end
+
+local function setInstantTransparency(panel, bgT, textT)
+    panel.BackgroundTransparency = bgT
+    for _, desc in ipairs(panel:GetDescendants()) do
+        if desc:IsA("Frame") then
+            desc.BackgroundTransparency = bgT
+        elseif desc:IsA("TextLabel") or desc:IsA("TextButton") then
+            desc.TextTransparency = textT
+        end
+    end
+end
+
+local function animateTabSwitch(targetPanel, targetButton)
+    if isSwitching or currentActivePanel == targetPanel then return end
+    isSwitching = true
+    tabHomepage.BackgroundColor3 = cardBase
+    tabCamlock.BackgroundColor3 = cardBase
+    tabZoomrate.BackgroundColor3 = cardBase
+    tabSilentAim.BackgroundColor3 = cardBase
+    targetButton.BackgroundColor3 = white
+    if currentActivePanel then
+        setPanelTransparency(currentActivePanel, 1, 1)
+        task.wait(0.25)
+        currentActivePanel.Visible = false
+    end
+    setInstantTransparency(targetPanel, 1, 1)
+    targetPanel.Visible = true
+    setPanelTransparency(targetPanel, 0, 0)
+    currentActivePanel = targetPanel
+    task.delay(0.25, function() isSwitching = false end)
+end
+
+tabHomepage.MouseButton1Click:Connect(function() animateTabSwitch(panelHomepage, tabHomepage) end)
+tabCamlock.MouseButton1Click:Connect(function() animateTabSwitch(panelCamlock, tabCamlock) end)
+tabZoomrate.MouseButton1Click:Connect(function() animateTabSwitch(panelZoomrate, tabZoomrate) end)
+tabSilentAim.MouseButton1Click:Connect(function() animateTabSwitch(panelSilentAim, tabSilentAim) end)
+
+setInstantTransparency(panelHomepage, 0, 0)
+panelHomepage.Visible = true
+tabHomepage.BackgroundColor3 = white
+currentActivePanel = panelHomepage
+
+-- ===== ХЕЛПЕРЫ =====
+local function isKnocked(character)
+    if not character then return false end
+    local bodyEffects = character:FindFirstChild("BodyEffects")
+    if bodyEffects and bodyEffects:FindFirstChild("K.O") then return bodyEffects["K.O"].Value end
+    return false
+end
+
+local function IsGrabbed(player)
+    return player and player.Character and player.Character:FindFirstChild('GRABBING_CONSTRAINT') ~= nil
+end
+
+local function getClosestPartToScreen(char)
+    local screenSize = cam.ViewportSize
+    local center = Vector2.new(screenSize.X / 2, screenSize.Y / 2)
+    local nearestPart, nearestDist = nil, math.huge
+    local parts = {
+        "Head", "UpperTorso", "LowerTorso",
+        "LeftUpperArm", "LeftLowerArm", "LeftHand",
+        "RightUpperArm", "RightLowerArm", "RightHand",
+        "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+        "RightUpperLeg", "RightLowerLeg", "RightFoot",
+        "HumanoidRootPart"
+    }
+    for _, name in ipairs(parts) do
+        local part = char:FindFirstChild(name)
+        if part then
+            local screenPos, onScreen = cam:WorldToViewportPoint(part.Position)
+            if onScreen then
+                local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                if dist < nearestDist then nearestDist = dist nearestPart = part end
+            end
+        end
+    end
+    return nearestPart
+end
+
+local function getTargetPosition(player, character)
+    if not character then return nil end
+    if _G.KnockCheck and isKnocked(character) then return nil end
+    if aimPart == "Closest Point" then
+        local part = getClosestPartToScreen(character)
+        if part then return part.Position end
+    else
+        local part = character:FindFirstChild(aimPart) or character:FindFirstChild("HumanoidRootPart")
+        if part then return part.Position end
+    end
+    return nil
+end
+
+local function getClosest()
+    local screenSize = cam.ViewportSize
+    local center = Vector2.new(screenSize.X / 2, screenSize.Y / 2)
+    local best, bestDist = nil, _G.FOV_RADIUS
+    for _, v in pairs(Players:GetPlayers()) do
+        if v == Player or (_G.Whitelist and _G.Whitelist[v.UserId]) then continue end
+        local char = v.Character
+        if not char then continue end
+        local targetPos = getTargetPosition(v, char)
+        if not targetPos then continue end
+        local screenPos, onScreen = cam:WorldToScreenPoint(targetPos)
+        if onScreen then
+            local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+            if dist < bestDist then
+                if _G.WallCheck then
+                    local ray = Ray.new(cam.CFrame.Position, (targetPos - cam.CFrame.Position).Unit * 500)
+                    local hit, _ = workspace:FindPartOnRayWithIgnoreList(ray, {Player.Character, cam})
+                    if hit and hit:IsDescendantOf(char) then bestDist = dist; best = targetPos end
+                else
+                    bestDist = dist; best = targetPos
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- ===== SILENT AIM HOOK =====
+local handler, oldFunc = nil, nil
+pcall(function()
+    local modules = ReplicatedStorage:FindFirstChild("Modules")
+    if modules then
+        local gunHandler = modules:FindFirstChild("GunHandler")
+        if gunHandler then
+            handler = require(gunHandler)
+            if handler and handler.getAim then oldFunc = handler.getAim end
+        end
+    end
+end)
+
+if handler and oldFunc then
+    handler.getAim = function(origin, maxDist)
+        if not _G.SilentAimEnabled then return oldFunc(origin, maxDist) end
+        if _G.RevolverBypass then
+            local tool = Player.Character and Player.Character:FindFirstChildOfClass("Tool")
+            if tool and (tool.Name == "[Revolver]" or tool.Name == "Revolver") then return oldFunc(origin, maxDist) end
+        end
+        local targetPos = getClosest()
+        if targetPos then return (targetPos - origin).Unit, math.min((targetPos - origin).Magnitude, maxDist or 200) end
+        return oldFunc(origin, maxDist)
+    end
+end
+
+-- ===== RAYCAST =====
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+raycastParams.IgnoreWater = true
+
+local function isPartVisible(origin, targetPart, ignoreList)
+    if not origin or not targetPart then return false end
+    local direction = (targetPart.Position - origin).Unit
+    local distance = (targetPart.Position - origin).Magnitude
+    local filter = {Player.Character}
+    if ignoreList then for _, v in ipairs(ignoreList) do table.insert(filter, v) end end
+    raycastParams.FilterDescendantsInstances = filter
+    local result = workspace:Raycast(origin, direction * distance, raycastParams)
+    if not result then return true end
+    return result.Instance == targetPart or result.Instance:IsDescendantOf(targetPart.Parent)
+end
+
+-- ===== CLOSEST POINT =====
+local function GetClosestPointOnPart(Part, Scale)
+    local PartCFrame = Part.CFrame
+    local PartSize = Part.Size
+    local PartSizeTransformed = PartSize * (Scale / 2)
+    local screenSize = cam.ViewportSize
+    local center = Vector2.new(screenSize.X / 2, screenSize.Y / 2)
+    local MouseRay = cam:ViewportPointToRay(center.X, center.Y)
+    local Transformed = PartCFrame:PointToObjectSpace(MouseRay.Origin + (MouseRay.Direction * MouseRay.Direction:Dot(PartCFrame.Position - MouseRay.Origin)))
+    return PartCFrame * Vector3.new(
+        math.clamp(Transformed.X, -PartSizeTransformed.X, PartSizeTransformed.X),
+        math.clamp(Transformed.Y, -PartSizeTransformed.Y, PartSizeTransformed.Y),
+        math.clamp(Transformed.Z, -PartSizeTransformed.Z, PartSizeTransformed.Z)
+    )
+end
+
+local function GetClosestPointOnPartBasic(Part)
+    if Part then
+        local screenSize = cam.ViewportSize
+        local center = Vector2.new(screenSize.X / 2, screenSize.Y / 2)
+        local MouseRay = cam:ViewportPointToRay(center.X, center.Y)
+        local Point = MouseRay.Origin + MouseRay.Direction * (Part.Position - MouseRay.Origin).Magnitude
+        local Check = RaycastParams.new()
+        Check.FilterType = Enum.RaycastFilterType.Whitelist
+        Check.FilterDescendantsInstances = {Part}
+        local Ray = Workspace:Raycast(MouseRay.Origin, (Point - MouseRay.Origin), Check)
+        if Ray then return Ray.Position else return Part.Position end
+    end
+end
+
+local function GetCamlockHitPosition(Target)
+    if not Target or not Target.Character then return nil end
+    local Character = Target.Character
+    local Humanoid = Character:FindFirstChild("Humanoid")
+    if not Humanoid then return nil end
+    local NearestPart = getClosestPartToScreen(Character)
+    if not NearestPart then return nil end
+    local HitPosition
+    if _G.CamlockHitPart == "Closest Point" then
+        if _G.CamlockClosestPointMode == "Default" then
+            HitPosition = GetClosestPointOnPart(NearestPart, _G.CamlockClosestPointScale)
+        else
+            HitPosition = GetClosestPointOnPartBasic(NearestPart)
+        end
+    elseif _G.CamlockHitPart == "Closest Part" then
+        HitPosition = NearestPart.Position
+    else
+        local part = Character:FindFirstChild(_G.CamlockHitPart)
+        HitPosition = part and part.Position
+    end
+    if not HitPosition then return nil end
+    if _G.CamlockPredictionEnabled then
+        local RootPart = Character:FindFirstChild("HumanoidRootPart")
+        if RootPart then
+            local Velocity = RootPart.Velocity
+            local PredictionVector = Vector3.new(_G.CamlockPredictionX, _G.CamlockPredictionY, _G.CamlockPredictionZ)
+            HitPosition = HitPosition + Velocity * PredictionVector
+        end
+    end
+    return HitPosition
+end
+
+local function GetBestCamlockTarget()
+    local Closest = nil
+    local Distance = _G.CamlockFOVRadius > 0 and _G.CamlockFOVRadius or math.huge
+    local screenSize = cam.ViewportSize
+    local center = Vector2.new(screenSize.X / 2, screenSize.Y / 2)
+    for _, targetPlayer in ipairs(Players:GetPlayers()) do
+        if targetPlayer == Player then continue end
+        if not targetPlayer.Character then continue end
+        local Character = targetPlayer.Character
+        local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+        if not HumanoidRootPart then continue end
+        local Position, OnScreen = cam:WorldToViewportPoint(HumanoidRootPart.Position)
+        if not OnScreen then continue end
+        if _G.CamlockConditionsForceField and Character:FindFirstChild("Forcefield") then continue end
+        if _G.CamlockConditionsVisible then
+            local localHead = Player.Character and Player.Character:FindFirstChild("Head")
+            if localHead and not isPartVisible(localHead.Position, HumanoidRootPart, {Character}) then continue end
+        end
+        if _G.CamlockConditionsCarried and IsGrabbed(targetPlayer) then continue end
+        if _G.CamlockConditionsKnocked and isKnocked(Character) then continue end
+        if _G.CamlockConditionsSelfKnocked and isKnocked(Player.Character) then continue end
+        local Magnitude = (Vector2.new(Position.X, Position.Y) - center).Magnitude
+        if Magnitude < Distance then Closest = targetPlayer Distance = Magnitude end
+    end
+    return Closest
+end
+
+-- ===== CAMLOCK =====
+local Camlock = { Target = nil, Active = false, Connection = nil }
+
+local function IsHoldingGun()
+    local char = Player.Character
+    if not char then return false end
+    local tool = char:FindFirstChildOfClass("Tool")
+    if not tool then return false end
+    if tool:FindFirstChild("Ammo") then return true end
+    if tool:FindFirstChild("Magazine") then return true end
+    local gunModule = ReplicatedStorage:FindFirstChild("Modules")
+    if gunModule then
+        local gunHandler = gunModule:FindFirstChild("GunHandler")
+        if gunHandler then
+            local success, module = pcall(function() return require(gunHandler) end)
+            if success and module and module.getGun then
+                local success2, gun = pcall(function() return module.getGun(tool) end)
+                if success2 and gun then return true end
+            end
+        end
+    end
+    return false
+end
+
+local function UpdateCamlock()
+    if not _G.CamlockEnabled then
+        Camlock.Active = false
+        Camlock.Target = nil
+        return
+    end
+    if _G.CamlockAutoToggle then
+        if not IsHoldingGun() then
+            Camlock.Active = false
+            Camlock.Target = nil
+            return
+        end
+        if not Camlock.Active or not Camlock.Target or not Camlock.Target.Character then
+            local target = GetBestCamlockTarget()
+            if target then
+                Camlock.Target = target
+                Camlock.Active = true
+            else
+                Camlock.Active = false
+                Camlock.Target = nil
+            end
+            return
+        end
+    else
+        if not Camlock.Active then return end
+    end
+    if not Camlock.Active then return end
+    if not Camlock.Target or not Camlock.Target.Character then Camlock.Active = false return end
+    local Character = Camlock.Target.Character
+    if not Character:FindFirstChild("HumanoidRootPart") then Camlock.Active = false return end
+    if _G.CamlockConditionsForceField and Character:FindFirstChild("Forcefield") then return end
+    if _G.CamlockConditionsKnocked and isKnocked(Character) then return end
+    if _G.CamlockConditionsSelfKnocked and isKnocked(Player.Character) then return end
+    if _G.CamlockConditionsCarried and IsGrabbed(Camlock.Target) then return end
+    local HitPosition = GetCamlockHitPosition(Camlock.Target)
+    if not HitPosition then return end
+    local Smoothing = _G.CamlockSmoothness
+    if _G.CamlockPullStrengthEnabled then
+        local RootPart = Character:FindFirstChild("HumanoidRootPart")
+        if RootPart then
+            local VelocityMagnitude = RootPart.Velocity.Magnitude
+            if VelocityMagnitude > 15 then Smoothing = _G.CamlockPullStrengthMoveValue
+            else Smoothing = _G.CamlockPullStrengthBaseValue end
+        end
+    end
+    local EasedSmoothing = TweenService:GetValue(Smoothing, Enum.EasingStyle[_G.CamlockEasingStyle], Enum.EasingDirection[_G.CamlockEasingDirection])
+    cam.CFrame = cam.CFrame:Lerp(CFrame.new(cam.CFrame.Position, HitPosition), EasedSmoothing)
+end
+
+local function EnableCamlock()
+    if not _G.CamlockEnabled then return end
+    local target = GetBestCamlockTarget()
+    if target then
+        Camlock.Target = target
+        Camlock.Active = true
+        if not Camlock.Connection then Camlock.Connection = RunService.RenderStepped:Connect(UpdateCamlock) end
+    end
+end
+
+local function DisableCamlock()
+    Camlock.Active = false
+    Camlock.Target = nil
+end
+
+if not Camlock.Connection then Camlock.Connection = RunService.RenderStepped:Connect(UpdateCamlock) end
+
+-- ===== МОБИЛЬНЫЙ TOGGLE CAMLOCK (кнопка на экране) =====
+-- Camlock включается через панель, а цель выбирается автоматически (Auto Toggle)
+-- Если Auto Toggle выкл — цель выбирается при включении Camlock
+
+-- Автоматически включаем Camlock при включении тумблера
+local originalCamlockCallback = nil
+
+-- ===== ZOOMRATE =====
+local targetZoom = _G.ZoomMax
+
+task.spawn(function()
+    while true do
+        if _G.ZoomRateEnabled then
+            if _G.ZoomOnlyWhenCamlocked and not Camlock.Active then
+                task.wait(0.2)
+            else
+                if targetZoom >= _G.ZoomMax then
+                    targetZoom = _G.ZoomMin
+                    local pauseTime = math.max(_G.ZoomStayMin / math.max(_G.ZoomFrequency, 0.1), 0.01)
+                    task.wait(pauseTime)
+                else
+                    targetZoom = _G.ZoomMax
+                    local pauseTime = math.max(_G.ZoomStayMax / math.max(_G.ZoomFrequency, 0.1), 0.01)
+                    task.wait(pauseTime)
+                end
+            end
+        else
+            task.wait(0.2)
+        end
+    end
+end)
+
+RunService.RenderStepped:Connect(function(dt)
+    if not _G.ZoomRateEnabled then return end
+    if _G.ZoomOnlyWhenCamlocked and not Camlock.Active then return end
+
+    local currentMin = Player.CameraMinZoomDistance
+    local currentMax = Player.CameraMaxZoomDistance
+    local currentTarget = math.clamp(targetZoom, _G.ZoomMin, _G.ZoomMax)
+
+    local newZoomMin = currentMin + (currentTarget - currentMin) * math.clamp(dt * _G.ZoomSpeed, 0, 1)
+    local newZoomMax = currentMax + (currentTarget - currentMax) * math.clamp(dt * _G.ZoomSpeed, 0, 1)
+
+    Player.CameraMinZoomDistance = newZoomMin
+    Player.CameraMaxZoomDistance = newZoomMax
+end)
+
+-- ===== СПРЕД =====
+local _0x9ba38e
+_0x9ba38e = hookfunction(math.random, function(...)
+    local args = {...}
+    if checkcaller() then return _0x9ba38e(...) end
+    if (#args == 0) or (args[1] == -0.05 and args[2] == 0.05) or (args[1] == -0.1) or (args[1] == -0.05) then
+        return _0x9ba38e(...) * (_G.BulletSpreadAmount / 100)
+    end
+    return _0x9ba38e(...)
+end)
+
+-- ===== ПЕРЕТАСКИВАНИЕ ОКНА (тач) =====
+local dragging = false
+local dragStartInput = nil
+local startFramePos = nil
+
+cardContainer.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        local touchPos = input.Position
+        local guiObjects = PlayerGui:GetGuiObjectsAtPosition(touchPos.X, touchPos.Y)
+        local overInteractive = false
+        for _, obj in ipairs(guiObjects) do
+            if obj:IsA("TextButton") or obj:IsA("ImageButton") or obj:IsA("ScrollingFrame") then
+                overInteractive = true
+                break
+            end
+        end
+        if not overInteractive then
+            dragging = true
+            dragStartInput = input.Position
+            startFramePos = cardContainer.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.Touch then
+        local delta = input.Position - dragStartInput
+        local newX = startFramePos.X.Offset + delta.X
+        local newY = startFramePos.Y.Offset + delta.Y
+        cardContainer.Position = UDim2.new(startFramePos.X.Scale, newX, startFramePos.Y.Scale, newY)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+-- ===== КНОПКА ЗАКРЫТИЯ/ОТКРЫТИЯ (ТОЛЬКО ТЕЛЕФОН) =====
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Name = "GuiToggleButton"
+toggleBtn.Size = UDim2.new(0, 60, 0, 60)
+toggleBtn.Position = UDim2.new(0, 12, 0, 100)
+toggleBtn.BackgroundColor3 = lightPink
+toggleBtn.BorderSizePixel = 0
+toggleBtn.Text = "✕"
+toggleBtn.TextColor3 = white
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 32
+toggleBtn.AutoButtonColor = false
+toggleBtn.ZIndex = 1000
+toggleBtn.Active = true
+toggleBtn.Parent = screenGui
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(1, 0)
+toggleCorner.Parent = toggleBtn
+
+local toggleStroke = Instance.new("UIStroke")
+toggleStroke.Color = white
+toggleStroke.Thickness = 2.5
+toggleStroke.Parent = toggleBtn
+
+toggleBtn.MouseButton1Down:Connect(function()
+    TweenService:Create(toggleBtn, TweenInfo.new(0.1), {BackgroundColor3 = lightBlue}):Play()
+end)
+toggleBtn.MouseButton1Up:Connect(function()
+    TweenService:Create(toggleBtn, TweenInfo.new(0.1), {BackgroundColor3 = lightPink}):Play()
+end)
+
+local guiOpen = true
+local function toggleGui()
+    if guiOpen then
+        TweenService:Create(cardContainer, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Size = UDim2.new(0, 0, 0, 0),
+            Position = UDim2.new(0.5, 0, 0.5, 0)
+        }):Play()
+        task.wait(0.25)
+        cardContainer.Visible = false
+        cardContainer.Size = UDim2.new(0, 580, 0, 450)
+        cardContainer.Position = UDim2.new(0.5, -290, 0.5, -225)
+        toggleBtn.Text = "☰"
+        guiOpen = false
+    else
+        cardContainer.Visible = true
+        cardContainer.Size = UDim2.new(0, 0, 0, 0)
+        cardContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
+        TweenService:Create(cardContainer, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = UDim2.new(0, 580, 0, 450),
+            Position = UDim2.new(0.5, -290, 0.5, -225)
+        }):Play()
+        toggleBtn.Text = "✕"
+        guiOpen = true
+    end
+end
+
+toggleBtn.MouseButton1Click:Connect(toggleGui)
+
+-- Перетаскивание кнопки пальцем
+local draggingBtn = false
+local dragStart = nil
+local startPos = nil
+
+toggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        draggingBtn = true
+        dragStart = input.Position
+        startPos = toggleBtn.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                draggingBtn = false
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingBtn and input.UserInputType == Enum.UserInputType.Touch then
+        local delta = input.Position - dragStart
+        toggleBtn.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
